@@ -55,6 +55,14 @@ const root = {
 
         outgoing.end();
     },
+    'isitchristmas': (request, response, searchParams) => {
+        const today = new Date();
+        respond(response,
+            '<h1 style="text-align: center; font-size:50pt">' +
+            (today.getMonth() === 11 && today.getDate() === 25 ? 'YES' : 'NO') +
+            '</h1>'
+        );
+    },
     'wp-includes': (request, response, searchParams) => {
         respond(response, '<h1>fuck off</h1>');
     },
