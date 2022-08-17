@@ -1,6 +1,9 @@
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
+const dotenv = require('dotenv');
+
+dotenv.config();
 
 function log(message) {console.log(message);}
 
