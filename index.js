@@ -2,25 +2,44 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const dotenv = require('dotenv');
+const mime = require('mime');
 
 dotenv.config();
 
+PROTOCOLS = {
+    http: {
+        module: http,
+        port: 80
+    },
+    https: {
+        module: https,
+        port: 443
+    }
+};
+
+protocol = PROTOCOLS.http;
+
 function log(message) {console.log(message);}
 
-function respond(response, data, code=200) {
-    response.writeHead(code, { 'Content-Type': 'text/html' });
+function respond(response, data, code=200, contentType='text/html') {
+    response.writeHead(code, { 'Content-Type': contentType });
     response.write(data);
     response.end();
 }
 
-function respondWithHTML(response, filename, code=200) {
+function respondWithFile(response, filename, code=200, contentType='text/html') {
     fs.readFile(filename, (err, data) => {
-        respond(response, data, code);
+        if (err) {
+            log(err);
+            respondWithError(response);
+            return;
+        }
+        respond(response, data, code, contentType);
     });
 }
 
 function respondWithError(response, code=404) {
-    respondWithHTML(response, 'error.html', code);
+    respondWithFile(response, 'error.html', code);
 }
 
 function getOriginalURL(request) {
@@ -44,7 +63,7 @@ const root = {
                 'Content-Type': 'application/json'
             }
         }, res => {
-            respondWithHTML(response, 'success.html');
+            respondWithFile(response, 'success.html');
         });
 
         outgoing.write(
@@ -73,11 +92,11 @@ const root = {
         respond(response, '<h1>fuck off</h1>');
     },
     'default': (request, response, searchParams) => {
-        respondWithHTML(response, 'index.html');
+        respondWithFile(response, 'hugo/public/index.html');
     }
 };
 
-const server = http.createServer((request, response) => {
+const server = protocol.module.createServer((request, response) => {
     log(new Date().toString());
 
     let url;
@@ -104,7 +123,11 @@ const server = http.createServer((request, response) => {
                 return;
             }
         } else {
-            respondWithError(response);
+            if (url.pathname.includes('..')) {
+                respondWithError(response);
+                return;
+            }
+            respondWithFile(response, 'hugo/public' + url.pathname, 200, mime.getType(url.pathname));
             return;
         }
     }
@@ -115,6 +138,6 @@ const server = http.createServer((request, response) => {
         }
     }
     respondWithError(response);
-}).listen(80);
+}).listen(protocol.port);
 
-console.log('hello from nodestar');
+console.log(`nodestar listening on port ${protocol.port}`);
