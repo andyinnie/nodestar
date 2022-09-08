@@ -37,7 +37,7 @@ function respondWithFile(response, filename, code=200, contentType='text/html') 
     fs.readFile(filename, (err, data) => {
         if (err) {
             log(err);
-            fs.promises.appendFile('hackattempts', err.path + '\n');
+            fs.promises.appendFile('hackattempts.txt', err.path + '\n');
             respondWithError(response);
             return;
         }
@@ -132,7 +132,7 @@ const server = protocol.module.createServer((request, response) => {
             }
         } else {
             if (url.pathname.includes('..')) {
-                fs.promises.appendFile('hackattempts', url.pathname + '\n');
+                fs.promises.appendFile('hackattempts.txt', url.pathname + '\n');
                 RESPONDERS.error404(response);
                 return;
             }
