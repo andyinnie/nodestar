@@ -6,20 +6,26 @@ const mime = require('mime');
 
 dotenv.config();
 
-PROTOCOLS = {
+const PROTOCOLS = {
     http: {
+        str: 'http',
         module: http,
         port: 80
     },
     https: {
+        str: 'https',
         module: https,
         port: 443
     }
 };
 
-protocol = PROTOCOLS.http;
+const protocol = PROTOCOLS.http;
 
 function log(message) {console.log(message);}
+
+function getOriginalURL(request) {
+    return new URL(request.url, `${protocol.str}://${request.headers.host}`);
+}
 
 function respond(response, data, code=200, contentType='text/html') {
     response.writeHead(code, { 'Content-Type': contentType });
@@ -31,6 +37,7 @@ function respondWithFile(response, filename, code=200, contentType='text/html') 
     fs.readFile(filename, (err, data) => {
         if (err) {
             log(err);
+            fs.promises.appendFile('hackattempts', err.path);
             respondWithError(response);
             return;
         }
@@ -42,9 +49,10 @@ function respondWithError(response, code=404) {
     respondWithFile(response, 'error.html', code);
 }
 
-function getOriginalURL(request) {
-    return new URL(request.url, `http://${request.headers.host}`);
-}
+const RESPONDERS = {
+    index: response => respondWithFile(response, 'hugo/public/index.html'),
+    error404: response => respondWithFile(response, 'hugo/public/404.html', 404)
+};
 
 const root = {
     'spotify': (request, response, searchParams) => {
@@ -92,7 +100,7 @@ const root = {
         respond(response, '<h1>fuck off</h1>');
     },
     'default': (request, response, searchParams) => {
-        respondWithFile(response, 'hugo/public/index.html');
+        RESPONDERS.index(response);
     }
 };
 
@@ -124,7 +132,8 @@ const server = protocol.module.createServer((request, response) => {
             }
         } else {
             if (url.pathname.includes('..')) {
-                respondWithError(response);
+                fs.promises.appendFile('hackattempts', url.pathname);
+                RESPONDERS.error404(response);
                 return;
             }
             respondWithFile(response, 'hugo/public' + url.pathname, 200, mime.getType(url.pathname));
@@ -137,7 +146,7 @@ const server = protocol.module.createServer((request, response) => {
             return;
         }
     }
-    respondWithError(response);
+    RESPONDERS.error404(response);
 }).listen(protocol.port);
 
 console.log(`nodestar listening on port ${protocol.port}`);
