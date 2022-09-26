@@ -3,7 +3,7 @@ import fs from "fs";
 import dotenv from "dotenv";
 import mime from "mime";
 import {PROTOCOLS, log, respond} from "./utils.js";
-import {getHackAttempts} from "./hackattempts.js";
+import {getHackAttempts, recordHackAttempt} from "./hackattempts.js";
 
 dotenv.config();
 
@@ -16,7 +16,7 @@ export function getOriginalURL(request) {
 function respondWithFile(response, filename, code=200, contentType='text/html') {
     fs.readFile(filename, (err, data) => {
         if (err) {
-            fs.appendFile('hackattempts.txt', err.path + '\n', ()=>{});
+            recordHackAttempt(err.path)
             respondWithError(response);
             return;
         }
@@ -114,7 +114,7 @@ const server = protocol.module.createServer((request, response) => {
         } else {
             getHackAttempts(set => {
                 if (set.has(url.pathname) || url.pathname.includes('..')) {
-                    fs.promises.appendFile('hackattempts.txt', url.pathname + '\n');
+                    recordHackAttempt(url.pathname);
                     RESPONDERS.gtfo(response);
                     return;
                 }

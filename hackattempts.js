@@ -20,3 +20,8 @@ export function getHackAttempts(callback, forceUpdate=false) {
         callback(HACK_ATTEMPTS);
     }
 }
+
+export function recordHackAttempt(path) {
+    fs.appendFileSync('hackattempts.txt', path + '\n');
+    HACK_ATTEMPTS.add(path);
+}
