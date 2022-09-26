@@ -1,43 +1,22 @@
-const http = require('http');
-const https = require('https');
-const fs = require('fs');
-const dotenv = require('dotenv');
-const mime = require('mime');
+import https from "https";
+import fs from "fs";
+import dotenv from "dotenv";
+import mime from "mime";
+import {PROTOCOLS, log, respond} from "./utils.js";
+import {getHackAttempts} from "./hackattempts.js";
 
 dotenv.config();
 
-const PROTOCOLS = {
-    http: {
-        str: 'http',
-        module: http,
-        port: 80
-    },
-    https: {
-        str: 'https',
-        module: https,
-        port: 443
-    }
-};
-
 const protocol = PROTOCOLS.http;
 
-function log(message) {console.log(message);}
-
-function getOriginalURL(request) {
+export function getOriginalURL(request) {
     return new URL(request.url, `${protocol.str}://${request.headers.host}`);
-}
-
-function respond(response, data, code=200, contentType='text/html') {
-    response.writeHead(code, { 'Content-Type': contentType });
-    response.write(data);
-    response.end();
 }
 
 function respondWithFile(response, filename, code=200, contentType='text/html') {
     fs.readFile(filename, (err, data) => {
         if (err) {
-            log(err);
-            fs.promises.appendFile('hackattempts.txt', err.path + '\n');
+            fs.appendFile('hackattempts.txt', err.path + '\n', ()=>{});
             respondWithError(response);
             return;
         }
@@ -45,13 +24,21 @@ function respondWithFile(response, filename, code=200, contentType='text/html') 
     });
 }
 
-function respondWithError(response, code=404) {
-    respondWithFile(response, 'error.html', code);
+export function respondWithError(response, code=404) {
+    switch (code) {
+        case 404:
+            RESPONDERS.error404(response);
+            break;
+        default:
+            respondWithFile(response, 'error.html', code);
+            break;
+    }
 }
 
 const RESPONDERS = {
     index: response => respondWithFile(response, 'hugo/public/index.html'),
-    error404: response => respondWithFile(response, 'hugo/public/404.html', 404)
+    error404: response => respondWithFile(response, 'hugo/public/404.html', 404),
+    gtfo: response => respondWithFile(response, 'gtfo.html', 404),
 };
 
 const root = {
@@ -61,7 +48,7 @@ const root = {
         const state = searchParams.get('state');
 
         if (!code || !state) {
-            respondWithError(response);
+            respondWithError(response, 500);
             return;
         }
 
@@ -93,12 +80,6 @@ const root = {
             '</h1>'
         );
     },
-    'wp-includes': (request, response, searchParams) => {
-        respond(response, '<h1>fuck off</h1>');
-    },
-    '.env': (request, response, searchParams) => {
-        respond(response, '<h1>fuck off</h1>');
-    },
     'default': (request, response, searchParams) => {
         RESPONDERS.index(response);
     }
@@ -112,7 +93,7 @@ const server = protocol.module.createServer((request, response) => {
         url = getOriginalURL(request);
     } catch (e) {
         log('that didn\'t last long');
-        respondWithError(response);
+        respondWithError(response, 500);
         return;
     }
 
@@ -131,20 +112,22 @@ const server = protocol.module.createServer((request, response) => {
                 return;
             }
         } else {
-            if (url.pathname.includes('..')) {
-                fs.promises.appendFile('hackattempts.txt', url.pathname + '\n');
-                RESPONDERS.error404(response);
-                return;
-            }
-            respondWithFile(response, 'hugo/public' + url.pathname, 200, mime.getType(url.pathname));
+            getHackAttempts(set => {
+                if (set.has(url.pathname) || url.pathname.includes('..')) {
+                    fs.promises.appendFile('hackattempts.txt', url.pathname + '\n');
+                    RESPONDERS.gtfo(response);
+                    return;
+                }
+
+                respondWithFile(response, 'hugo/public' + url.pathname, 200, mime.getType(url.pathname));
+            });
+
             return;
         }
     }
-    if (typeof current === 'object') {
-        if ('default' in current) {
-            current['default'](request, response, url.searchParams);
-            return;
-        }
+    if (typeof current === 'object' && 'default' in current) {
+        current['default'](request, response, url.searchParams);
+        return;
     }
     RESPONDERS.error404(response);
 }).listen(protocol.port);
