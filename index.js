@@ -192,6 +192,7 @@ const server = protocol.module.createServer((request, response) => {
             current['*'](request, response, url.searchParams, p);  // TODO: include the remainder of pathSplit, after p
             return;
         } else {
+            log('Suspected hack attempt')
             getHackAttempts(set => {
                 if (set.has(url.pathname) || url.pathname.includes('..')) {
                     recordHackAttempt(url.pathname);
