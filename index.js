@@ -2,7 +2,9 @@ import https from "https";
 import fs from "fs";
 import dotenv from "dotenv";
 import mime from "mime";
-import {PROTOCOLS, log, respond} from "./utils.js";
+import mysql from "mysql2";
+
+import {PROTOCOLS, log, respond, respondCustomHeaders, randomString} from "./utils.js";
 import {getHackAttempts, recordHackAttempt} from "./hackattempts.js";
 
 dotenv.config();
@@ -13,13 +15,21 @@ export function getOriginalURL(request) {
     return new URL(request.url, `${protocol.str}://${request.headers.host}`);
 }
 
-function respondWithFile(response, filename, code=200, contentType='text/html') {
+function respondWithFile(response, filename, code=200, contentType='text/html', replacements={}) {
     fs.readFile(filename, (err, data) => {
         if (err) {
             recordHackAttempt(err.path)
             respondWithError(response);
             return;
         }
+
+        if (contentType === 'text/html') {
+            data = data.toString();
+            for (const k in replacements) {
+                data = data.replace(new RegExp(`%%${k}%%`, 'g'), replacements[k]);
+            }
+        }
+
         respond(response, data, code, contentType);
     });
 }
@@ -40,6 +50,19 @@ const RESPONDERS = {
     error404: response => respondWithFile(response, 'hugo/public/404.html', 404),
     gtfo: response => respondWithFile(response, 'gtfo.html', 404),
 };
+
+
+const db = mysql.createConnection({
+    host: 'localhost',
+    user: 'root',
+    password: process.env.MYSQL_PW,
+    database: 'nodestar'
+});
+
+db.connect(function(err) {
+    if (err) throw err;
+    log('Connected to MySql!');
+});
 
 const root = {
     'spotify': (request, response, searchParams) => {
@@ -80,9 +103,58 @@ const root = {
             '</h1>'
         );
     },
+    'urlshorten': {
+        '*': (request, response, searchParams, path) => {
+            if (path === undefined) {
+                RESPONDERS.error404(response);
+                return;
+            }
+
+            if (path.length === 0) {
+                respondWithFile(response, 'urlshorten.html');
+                return;
+            }
+
+            if (path === 'submit') {
+                const id = randomString(8);
+                const url = decodeURI(searchParams.get('url'));
+                // should i be worried about id collisions? nahhhh
+                db.query(
+                    `INSERT INTO urlshorten (id, url) VALUES (?, ?)`,
+                    [id, url],
+                    (err, results, fields) => {
+                        if (err) throw err;
+                        const shorter = 'andrewjm.me/urlshorten/' + id;
+                        const shortened = 'https://' + shorter;
+                        respondWithFile(
+                            response,
+                            'urlshortensuccess.html',
+                            200,
+                            'text/html',
+                            {'url': shortened, 'urlbrief': shorter}
+                        );
+                    }
+                );
+                return;
+            }
+
+            db.query(`SELECT url FROM urlshorten WHERE id=?;`,
+                [path],
+                (err, results, fields) => {
+                    if (err) throw err;
+
+                    if (results.length === 0) {
+                        RESPONDERS.error404(response);
+                        return;
+                    }
+
+                    respondCustomHeaders(response, '', {'Location': results[0].url}, 301);
+                })
+        }
+    },
     'default': (request, response, searchParams) => {
         RESPONDERS.index(response);
-    }
+    },
 };
 
 const server = protocol.module.createServer((request, response) => {
@@ -97,6 +169,7 @@ const server = protocol.module.createServer((request, response) => {
         return;
     }
 
+    log(url.toString());
     log(`Received request for path ${url.pathname}`);
     const pathSplit = url.pathname.trim().substring(1).split('/');
     let current = root;
@@ -108,9 +181,16 @@ const server = protocol.module.createServer((request, response) => {
             if (typeof next === 'object') {
                 current = next;
             } else if (typeof next === 'function') {
-                next(request, response, url.searchParams);
+                try {
+                    next(request, response, url.searchParams);
+                } catch (e) {
+                    respondWithError(response, 500);
+                }
                 return;
             }
+        } else if ('*' in current) {
+            current['*'](request, response, url.searchParams, p);  // TODO: include the remainder of pathSplit, after p
+            return;
         } else {
             getHackAttempts(set => {
                 if (set.has(url.pathname) || url.pathname.includes('..')) {
@@ -126,7 +206,19 @@ const server = protocol.module.createServer((request, response) => {
         }
     }
     if (typeof current === 'object' && 'default' in current) {
-        current['default'](request, response, url.searchParams);
+        try {
+            current['default'](request, response, url.searchParams);
+        } catch (e) {
+            respondWithError(response, 500);
+        }
+        return;
+    }
+    if (typeof current === 'object' && '*' in current) {
+        try {
+            current['*'](request, response, url.searchParams, '');
+        } catch (e) {
+            respondWithError(response, 500);
+        }
         return;
     }
     RESPONDERS.error404(response);
