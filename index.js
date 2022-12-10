@@ -52,17 +52,20 @@ const RESPONDERS = {
 };
 
 
-const db = mysql.createConnection({
-    host: 'localhost',
-    user: 'root',
-    password: process.env.MYSQL_PW,
-    database: 'nodestar'
-});
+function getDBConnection() {
+    const db = mysql.createConnection({
+        host: 'localhost',
+        user: 'root',
+        password: process.env.MYSQL_PW,
+        database: 'nodestar'
+    });
 
-db.connect(function(err) {
-    if (err) throw err;
-    log('Connected to MySql!');
-});
+    db.connect(function (err) {
+        if (err) throw err;
+        log('Connected to MySql!');
+    });
+    return db;
+}
 
 const root = {
     'spotify': (request, response, searchParams) => {
@@ -119,8 +122,9 @@ const root = {
                 const id = randomString(8);
                 const url = decodeURI(searchParams.get('url'));
                 // should i be worried about id collisions? nahhhh
+                const db = getDBConnection();
                 db.query(
-                    `INSERT INTO urlshorten (id, url) VALUES (?, ?)`,
+                    `INSERT INTO urlshorten (id, url) VALUES (?, ?);`,
                     [id, url],
                     (err, results, fields) => {
                         if (err) throw err;
@@ -133,12 +137,15 @@ const root = {
                             'text/html',
                             {'url': shortened, 'urlbrief': shorter}
                         );
+                        db.end();
                     }
                 );
                 return;
             }
 
-            db.query(`SELECT url FROM urlshorten WHERE id=?;`,
+            const db = getDBConnection();
+            db.query(
+                `SELECT url FROM urlshorten WHERE id=?;`,
                 [path],
                 (err, results, fields) => {
                     if (err) throw err;
@@ -149,7 +156,9 @@ const root = {
                     }
 
                     respondCustomHeaders(response, '', {'Location': results[0].url}, 301);
-                })
+                    db.end();
+                }
+            );
         }
     },
     'default': (request, response, searchParams) => {
@@ -189,7 +198,11 @@ const server = protocol.module.createServer((request, response) => {
                 return;
             }
         } else if ('*' in current) {
-            current['*'](request, response, url.searchParams, p);  // TODO: include the remainder of pathSplit, after p
+            try {
+                current['*'](request, response, url.searchParams, p);  // TODO: include the remainder of pathSplit, after p
+            }  catch (e) {
+                respondWithError(response, 500);
+            }
             return;
         } else {
             log('Suspected hack attempt')
